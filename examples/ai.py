@@ -49,6 +49,7 @@ async def openai_chat_completion(messages):
 
 # Define a function to handle channel events
 def events(user_id):
+    print("Registering events for user_id:", user_id)
     @sio.on("channel-events")
     async def channel_events(data):
         if data["user"]["id"] == user_id:
@@ -63,7 +64,8 @@ def events(user_id):
                 """
                 Sends typing indicators every second until the provided coroutine completes.
                 """
-                task = asyncio.create_task(coro)  # Begin the provided coroutine task
+                loop = asyncio.get_running_loop()
+                task = loop.create_task(coro) # Begin the provided coroutine task
                 try:
                     # While the task is running, send typing indicators every second
                     while not task.done():
@@ -116,12 +118,28 @@ async def main():
         print(f"Failed to connect: {e}")
         return
 
-    # Callback function for user-join
-    async def join_callback(data):
-        events(data["id"])  # Attach the event handlers dynamically
+    user_id = None
+
+    async def join_callback(data=None):
+        nonlocal user_id
+        print("join_callback called with:", data)
+        if data and isinstance(data, dict) and "id" in data:
+            user_id = data["id"]
+            events(user_id)
+        else:
+            print("Warning: no user_id in callback")
 
     # Authenticate with the server
     await sio.emit("user-join", {"auth": {"token": TOKEN}}, callback=join_callback)
+    print("Emit sent.")
+
+    # Fallback: if no callback comes, manual call after a short delay
+    await asyncio.sleep(1)
+    if user_id is None:
+        print("No user_id from callback—attempting fallback.")
+        # Manually known or determinable via API
+        # Example: user_id = "<YOUR_IDENTIFIER>"
+        # events(user_id)
 
     # Wait indefinitely to keep the connection open
     await sio.wait()
@@ -129,4 +147,8 @@ async def main():
 
 # Actually run the async `main` function using `asyncio`
 if __name__ == "__main__":
-    asyncio.run(main())
+    loop = asyncio.get_event_loop()
+    try:
+        loop.run_until_complete(main())
+    finally:
+        loop.close()
